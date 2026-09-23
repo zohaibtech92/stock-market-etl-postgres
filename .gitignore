@@ -1,4 +1,22 @@
+# Environment / secrets
+.env
+
+# Python
 venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Jupyter (if you use notebooks for exploration)
+.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/
+
+# OS/editor cruft
+.DS_Store
+.vscode/venv/
 .env
 __pycache__/
 *.pyc
