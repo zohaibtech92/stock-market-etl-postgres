@@ -59,3 +59,21 @@ Design decisions worth noting:
 
 Verified schema creation with `psql ... -f schema.sql` and confirmed all
 three tables exist via `\dt`.
+
+### Step 3 — Populate dim_date
+Populated the date dimension using PostgreSQL's `generate_series()` to
+generate a full calendar range (2020-01-01 to 2027-12-31, 2,922 rows) in a
+single SQL statement rather than looping through dates in Python.
+
+Bug encountered: `generate_series(...) AS d` alone doesn't expose `d` as a
+usable column reference in the SELECT list — Postgres requires the fuller
+form `AS d(d)` to explicitly name the output column. Fixed and reran.
+
+Each row precomputes year, month, day, day-of-week name, and an is_weekend
+boolean (via `EXTRACT(ISODOW FROM d) IN (6, 7)`), so future analytical
+queries (e.g. average close price by month) can join against this table
+instead of repeating date-function calls on every query.
+
+Note: `TO_CHAR(d, 'Day')` pads weekday names to a fixed width (trailing
+spaces) — not an issue for storage, but would need `TRIM()` if ever used in
+an exact-match WHERE clause.
