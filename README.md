@@ -77,3 +77,20 @@ instead of repeating date-function calls on every query.
 Note: `TO_CHAR(d, 'Day')` pads weekday names to a fixed width (trailing
 spaces) — not an issue for storage, but would need `TRIM()` if ever used in
 an exact-match WHERE clause.
+
+### Step 4 — Extract script (yfinance)
+Wrote `extract.py` to pull daily OHLCV data for a fixed ticker list
+(AAPL, MSFT, GOOGL, TSLA, AMZN) via yfinance, combining each ticker's
+result into a single pandas DataFrame.
+
+Bug encountered: script failed with `ModuleNotFoundError: No module named
+'yfinance'` when the virtual environment wasn't activated — yfinance was
+installed inside `venv`, not globally. Fixed by remembering to run
+`source venv/bin/activate` at the start of every terminal session before
+running any project script.
+
+Confirmed yfinance's raw column names: Date, Open, High, Low, Close, Volume,
+Dividends, Stock Splits, ticker. Dividends/Stock Splits aren't part of this
+project's schema and will be dropped in the transform step. The Date column
+also carries a timezone offset that needs stripping before it can be joined
+against `dim_date.full_date`.
