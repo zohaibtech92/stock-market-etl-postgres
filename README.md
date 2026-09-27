@@ -94,3 +94,20 @@ Dividends, Stock Splits, ticker. Dividends/Stock Splits aren't part of this
 project's schema and will be dropped in the transform step. The Date column
 also carries a timezone offset that needs stripping before it can be joined
 against `dim_date.full_date`.
+
+### Step 5 — Transform & validate
+Wrote `transform.py` to clean raw yfinance output into the exact shape of
+`fact_stock_prices`:
+- Dropped unused columns (Dividends, Stock Splits)
+- Stripped timezone info from the Date column, keeping only the calendar date
+- Renamed columns to match the database schema (open_price, high_price, etc.)
+- Added real data-quality checks, not just type conversion:
+  - Drops rows with nulls in any critical price/volume field
+  - Drops rows where high < low (should be mathematically impossible for
+    real market data — signals bad source data if it happens)
+  - Drops rows with non-positive prices
+  - Drops rows with negative volume
+
+All 25 extracted rows passed validation on this run (0 dropped), confirming
+the checks aren't overly aggressive on clean data — the real test will be
+seeing whether they correctly catch bad data if/when the API returns any.
