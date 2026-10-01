@@ -23,6 +23,14 @@ def extract_stock_data(tickers, period="5d"):
 		hist["ticker"] = ticker
 		all_data.append(hist)
 
+	if not all_data:
+	        raise ValueError(
+        	    f"No data returned for any ticker in {tickers}. "
+           	    "This usually means yfinance/Yahoo Finance is temporarily "
+           	    "unavailable or rate-limited — check the warnings above, "
+           	    "wait a bit, and retry."
+        	)
+
 	combined = pd.concat(all_data, ignore_index=True)
 	return combined
 

@@ -111,3 +111,30 @@ Wrote `transform.py` to clean raw yfinance output into the exact shape of
 All 25 extracted rows passed validation on this run (0 dropped), confirming
 the checks aren't overly aggressive on clean data — the real test will be
 seeing whether they correctly catch bad data if/when the API returns any.
+
+### Step 6 — Load (idempotent upsert into PostgreSQL)
+Wrote `load.py` using SQLAlchemy to upsert data into `dim_company` and
+`fact_stock_prices`, keyed on `UNIQUE(ticker)` and `UNIQUE(company_id, date_id)`
+respectively via `ON CONFLICT ... DO UPDATE`.
+
+Bugs encountered:
+1. Connection string built with plain f-string concatenation broke when the
+   database password contained an `@` character — SQLAlchemy parsed part of
+   the password as the hostname (`could not translate host name "786@localhost"`).
+   Fixed by URL-encoding user/password with `urllib.parse.quote_plus()`
+   before building the connection string — the correct general fix for any
+   password containing special characters (@, :, /, #).
+2. Yahoo Finance's API intermittently fails to fetch its session
+   cookie/crumb ("Cookie/crumb fetch failed (Timeout)"), causing some
+   tickers to return no data on a given run. Not a code bug — an external
+   API being flaky. The Step 4 `if not all_data` guard means the pipeline
+   degrades gracefully (loads whatever tickers succeeded) instead of
+   crashing entirely.
+
+Verified idempotency across two real consecutive runs: the first run loaded
+10 rows (2 companies succeeded). The second run — under the same API
+flakiness, with one additional company succeeding this time — correctly
+upserted the 10 existing rows in place (refreshed `loaded_at`, no
+duplicates) and inserted exactly 5 new rows for the new company. Final
+count: 15, confirming `ON CONFLICT` prevents duplicate rows even under
+partial, inconsistent API failures run-to-run.
