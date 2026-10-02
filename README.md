@@ -138,3 +138,16 @@ upserted the 10 existing rows in place (refreshed `loaded_at`, no
 duplicates) and inserted exactly 5 new rows for the new company. Final
 count: 15, confirming `ON CONFLICT` prevents duplicate rows even under
 partial, inconsistent API failures run-to-run.
+
+### Step 7a — Orchestration + logging
+Wrote `run_pipeline.py` to chain extract → transform → load into a single
+entry point, using Python's `logging` module instead of print statements.
+Logs write to both the terminal and `pipeline.log` simultaneously (appending
+across runs, giving a running history), with full tracebacks captured on
+failure via `exc_info=True`, and the pipeline still re-raises after logging
+so a scheduler correctly sees a non-zero exit code on failure.
+
+Minor bugs caught and fixed: a missing `f` prefix on one log line (printed
+the literal `{len(raw)}` instead of substituting the value), and a missing
+space in the log format string. Both cosmetic but worth catching, since log
+readability matters once nobody's watching the terminal live.
