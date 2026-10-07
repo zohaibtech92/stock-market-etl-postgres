@@ -151,3 +151,22 @@ Minor bugs caught and fixed: a missing `f` prefix on one log line (printed
 the literal `{len(raw)}` instead of substituting the value), and a missing
 space in the log format string. Both cosmetic but worth catching, since log
 readability matters once nobody's watching the terminal live.
+
+### Step 7b — Cron scheduling
+Scheduled `run_pipeline.py` via cron to run at 9 PM, Monday–Friday
+(`0 21 * * 1-5`), after US market close:
+0 21 * * 1-5 cd /home/zohaibtech92/stock-etl-pipeline && venv/bin/python run_pipeline.py >> cron.log 2>&1
+Key details for a cron job to work correctly in this setup:
+- `cd` into the project directory first — cron does not start in the
+  project folder by default
+- Call `venv/bin/python` directly rather than relying on `source
+  venv/bin/activate` — cron jobs don't have an interactive shell, so venv
+  activation (which is just a shell-session change) doesn't carry over
+- Redirect output to a separate `cron.log` (`>> cron.log 2>&1`) as a second
+  safety net, in case something fails before Python's own logging even
+  initializes
+
+Verified the job actually works end-to-end by temporarily scheduling it 2
+minutes ahead and confirming both `cron.log` and `pipeline.log` captured a
+full successful run (25 rows extracted, transformed, loaded) before
+reverting to the real Mon–Fri 9 PM schedule.
