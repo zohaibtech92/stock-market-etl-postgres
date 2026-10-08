@@ -1,24 +1,137 @@
 # Stock Market ETL Pipeline → PostgreSQL
 
-A production-style ETL pipeline that pulls daily stock price data via yfinance,
-validates and transforms it, and loads it into a PostgreSQL database using a
-proper star schema (fact + dimension tables) — not a flat table.
+A scheduled ETL pipeline that pulls daily stock prices from Yahoo Finance
+(via yfinance), validates them, and loads them into PostgreSQL using a
+star schema (dimension + fact tables) with idempotent upserts.
 
-## Why this project
-Previous ETL work (USD-to-INR exchange rate tracker) used SQLite and a single
-flat table. This project is a deliberate step up: a real relational database,
-a normalized schema, and idempotent loads that can be re-run safely on a
-schedule without creating duplicate data.
+## Why I built this
+My earlier ETL project (USD-to-INR exchange rates) used SQLite and a single
+flat table. This project is a deliberate step up: a client-server database,
+a normalized schema, referential integrity, and loads that are safe to re-run.
+
+## Architecture
+
+```
+yfinance (Yahoo Finance)
+        │
+        ▼
+   extract.py        pull daily OHLCV per ticker into a DataFrame
+        │
+        ▼
+  transform.py       drop unused columns, strip timezones, rename columns,
+        │            validate (nulls, high < low, non-positive prices, volume)
+        ▼
+    load.py          upsert dim_company, map keys, upsert fact_stock_prices
+        │
+        ▼
+   PostgreSQL        dim_company · dim_date · fact_stock_prices
+
+run_pipeline.py chains the three steps with logging; cron triggers it.
+```
+
+## Schema (star schema)
+
+| Table | Grain | Purpose |
+|---|---|---|
+| `dim_company` | one row per ticker | descriptive attributes (ticker, name, sector, exchange) |
+| `dim_date` | one row per calendar date | precomputed year, month, day, weekday, is_weekend |
+| `fact_stock_prices` | one row per company per day | OHLCV measurements + foreign keys to both dimensions |
+
+Design choices:
+- `NUMERIC(12,4)` for prices instead of `FLOAT`, to avoid rounding error.
+- `UNIQUE (company_id, date_id)` on the fact table, which makes
+  `INSERT ... ON CONFLICT DO UPDATE` possible, so reruns never create duplicates.
+- Foreign keys enforce that every price row belongs to a real company and date.
 
 ## Tech stack
-- Python 3
-- PostgreSQL 18 (running natively in WSL Ubuntu)
-- SQLAlchemy + psycopg2 for the database layer
-- yfinance for data extraction
-- pandas for transformation
-- python-dotenv for credential management
+Python 3 · PostgreSQL 18 · SQLAlchemy + psycopg2 · pandas · yfinance ·
+python-dotenv · cron · Python `logging`
 
-## Progress log
+## Project structure
+
+```
+stock-etl-pipeline/
+├── schema.sql              # table definitions
+├── populate_dim_date.sql   # fills dim_date (2020-01-01 to 2027-12-31)
+├── extract.py
+├── transform.py
+├── load.py
+├── run_pipeline.py         # entry point: extract → transform → load
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+## Setup
+
+1. Install PostgreSQL and create a dedicated role and database:
+```sql
+   CREATE USER stock_etl_user WITH PASSWORD 'your_password_here';
+   CREATE DATABASE stock_market OWNER stock_etl_user;
+```
+2. Create the environment and install dependencies:
+```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+```
+3. Copy `.env.example` to `.env` and fill in your credentials.
+4. Create the schema and populate the date dimension:
+```bash
+   psql -U stock_etl_user -d stock_market -h localhost -f schema.sql
+   psql -U stock_etl_user -d stock_market -h localhost -f populate_dim_date.sql
+```
+
+## Running
+
+Manual run:
+```bash
+python run_pipeline.py
+```
+
+Scheduled run (weekdays at 9 PM, after US market close), via `crontab -e`:
+```
+0 21 * * 1-5 cd /path/to/stock-etl-pipeline && venv/bin/python run_pipeline.py >> cron.log 2>&1
+```
+
+Logs go to the terminal and `pipeline.log` (appended across runs).
+
+## Example queries
+
+```sql
+-- Average close price per company per month
+SELECT c.ticker, d.year, d.month, ROUND(AVG(f.close_price), 2) AS avg_close
+FROM fact_stock_prices f
+JOIN dim_company c ON c.company_id = f.company_id
+JOIN dim_date d ON d.date_id = f.date_id
+GROUP BY c.ticker, d.year, d.month
+ORDER BY c.ticker, d.year, d.month;
+```
+
+## Known limitations
+- **yfinance is an unofficial Yahoo Finance scraper.** During development it
+  intermittently failed to fetch its session cookie ("Cookie/crumb fetch
+  failed"), returning no data for some tickers on some runs. The pipeline
+  loads whatever succeeded, but a failed ticker is not automatically retried.
+- `dim_company` currently stores only the ticker (company name is set to the
+  ticker; sector and exchange are empty).
+- Loading is row-by-row, which is fine at this scale but would need batching
+  for large volumes.
+- No automated tests yet.
+- On WSL, cron only fires while WSL is running, and the `cron` and
+  `postgresql` services must be started (`sudo service cron start`,
+  `sudo service postgresql start`).
+
+## Possible next steps
+- Retry logic for failed tickers
+- Populate company name, sector, and exchange from yfinance metadata
+- Batch inserts
+- Unit tests for the transform validation rules
+- Backfill command for longer history
+
+---
+
+## Development log
 
 ### Step 1 — Environment setup
 - Installed PostgreSQL 18 in WSL Ubuntu via `apt`
